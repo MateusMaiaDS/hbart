@@ -1,0 +1,595 @@
+# ==================================#
+# Objects to test the stump function
+# ==================================#
+
+# Create a stump
+stump_mu <- function(x, mu) {
+  node <- list()
+  node[["node_0"]] <- list(
+    node_number = 0, observations_index = seq_len(nrow(x)),
+    depth_node = 0,
+    node_var = NA,
+    node_var_split = NA,
+    left = 0,
+    right = 0,
+    parent_node = NA, # Retrieving the number of parent node
+    terminal = 1
+  )
+  node[["node_0"]]$mu <- mu
+    return(node)
+}
+
+# Creating another stump for tau
+stump_tau <- function(x, tau) {
+  node <- list()
+  node[["node_0"]] <- list(
+    node_number = 0, observations_index = seq_len(nrow(x)),
+    depth_node = 0,
+    node_var = NA,
+    node_var_split = NA,
+    left = 0,
+    right = 0,
+    parent_node = NA, # Retrieving the number of parent node
+    terminal = 1
+  )
+  node[["node_0"]]$tau <- tau
+  return(node)
+}
+
+
+
+
+# ==================================#
+# Objects to test the grow__tree_verb function
+# ==================================#
+
+grow_tree <- function(tree, x, node_min_size){
+  
+  # Controlling the "bad trees"
+  bad_trees <- TRUE
+  count_bad_trees <- 0
+  
+  # Try to not get bad_trees
+  while(bad_trees) {
+    
+    # Creating a new tree object to be grown
+    new_tree <- tree
+    
+    # Returning the Tree if there's no node to grow
+    if(sum(vapply(new_tree, function(x) {
+      # This condition will see if the terminal nodes have at least more than 2* the min node size
+      x$terminal == 1 && length(x$observations_index) > 2 * node_min_size
+    }, logical(1))) == 0) {
+      return(tree)
+    }
+    
+    # Selecting the terminal nodes
+    nodes_to_grow_names <- names(new_tree[vapply(new_tree, function(x) {
+      (x$terminal == 1) && (length(x$observations_index) > 2 * node_min_size)
+    }, logical(1))])
+    
+    # Selecting one terminal node randomly 
+    node_to_grow <- sample(nodes_to_grow_names, size = 1)
+    
+    # Selecting the current node to grow
+    current_node <- new_tree[[node_to_grow]]
+    
+    # Select only the covariates 
+    node_var <- sample(colnames(x), 1) 
+    
+    # Determining that this node is no longer a terminal one
+    new_tree[[node_to_grow]]$terminal <- 0
+    
+    
+
+      
+    # Conditioning if the covariate is continuous or categorical
+    if(is.numeric(x[, node_var])) {
+      
+      # Selecting the splitting point on the variable, unformly on the observed instances
+      node_var_split <- sample(x[current_node$observations_index, node_var], size = 1) 
+      
+      left_node_split  <- current_node$observations_index[which(x[current_node$observations_index, node_var]  < node_var_split)] # Selecting the left node
+      right_node_split <- current_node$observations_index[which(x[current_node$observations_index, node_var] >= node_var_split)] # Selecting the right node
+      
+      # Updating the depth node
+      depth_node <- current_node$depth_node + 1
+      
+      # Adding to the next node
+      i <- max(vapply(new_tree, "[[", numeric(1), "node_number")) + 1 # Adding to the next node
+      
+      
+      # Checking if the tree is the type \mu tree (in this case there's no \tau element)
+      if (is.null(tree[[1]]$tau) ){
+        
+          # Informing the next node
+          new_tree[[paste0("node_", i)]] <- list(
+            node_number = i, observations_index = left_node_split,
+            depth_node = depth_node,
+            node_var = node_var,
+            node_var_split = node_var_split,
+            left = 1,
+            right = 0,
+            parent_node = current_node$node_number, # Retrieving the number of parent node
+            terminal = 1,
+            mu = current_node$mu
+          ) # Adding the node to the new_tree
+          
+          i <- i + 1 # Adding to the next node
+          
+          new_tree[[paste0("node_", i)]] <- list(
+            node_number = i, observations_index = right_node_split,
+            depth_node = depth_node,
+            node_var = node_var,
+            node_var_split = node_var_split,
+            left = 0,
+            right = 1,
+            parent_node = current_node$node_number, # Retrieving the number of parent node
+            terminal = 1,
+            mu = current_node$mu)
+    
+        } else { # Adjusting now for the \tau version trees
+        
+          # Informing the next node
+          new_tree[[paste0("node_", i)]] <- list(
+            node_number = i, observations_index = left_node_split,
+            depth_node = depth_node,
+            node_var = node_var,
+            node_var_split = node_var_split,
+            left = 1,
+            right = 0,
+            parent_node = current_node$node_number, # Retrieving the number of parent node
+            terminal = 1,
+            tau = current_node$tau
+          ) # Adding the node to the new_tree
+          
+          i <- i + 1 # Adding to the next node
+          
+          new_tree[[paste0("node_", i)]] <- list(
+            node_number = i, observations_index = right_node_split,
+            depth_node = depth_node,
+            node_var = node_var,
+            node_var_split = node_var_split,
+            left = 0,
+            right = 1,
+            parent_node = current_node$node_number, # Retrieving the number of parent node
+            terminal = 1,
+            tau = current_node$tau)
+          
+          } # Finishing the adjustment/conditional for the \tau trees
+
+    } else { # Condition to categorical variables
+      
+      # Selecting from the observations
+      node_var_split <- sample(
+        levels(x[current_node$observations_index, node_var]), 
+        1
+      ) # One sample to split
+      
+      left_node_split  <- current_node$observations_index[which(x[current_node$observations_index, node_var] == node_var_split)] # Selecting the left node
+      right_node_split <- current_node$observations_index[which(x[current_node$observations_index, node_var] != node_var_split)] # Selecting the right node
+      
+      # Updating depthnode
+      depth_node <- current_node$depth_node + 1
+      
+      i <- max(vapply(new_tree, "[[", numeric(1), "node_number")) + 1 # Adding to the next node
+      
+      # Checking if the tree is the type \mu tree (in this case there's no \tau element)
+      if (is.null(tree[[1]]$tau) ){
+        
+        # Informing the next node
+        new_tree[[paste0("node_", i)]] <- list(
+          node_number = i, observations_index = left_node_split,
+          depth_node = depth_node,
+          node_var = node_var,
+          node_var_split = node_var_split,
+          left = 1,
+          right = 0,
+          parent_node = current_node$node_number, # Retrieving the number of parent node
+          terminal = 1,
+          mu = current_node$mu
+        ) # Adding the node to the new_tree
+        
+        i <- i + 1 # Adding to the next node
+        
+        new_tree[[paste0("node_", i)]] <- list(
+          node_number = i, observations_index = right_node_split,
+          depth_node = depth_node,
+          node_var = node_var,
+          node_var_split = node_var_split,
+          left = 0,
+          right = 1,
+          parent_node = current_node$node_number, # Retrieving the number of parent node
+          terminal = 1,
+          mu = current_node$mu)
+        
+      } else { # Adjusting now for the \tau version trees
+        
+        # Informing the next node
+        new_tree[[paste0("node_", i)]] <- list(
+          node_number = i, observations_index = left_node_split,
+          depth_node = depth_node,
+          node_var = node_var,
+          node_var_split = node_var_split,
+          left = 1,
+          right = 0,
+          parent_node = current_node$node_number, # Retrieving the number of parent node
+          terminal = 1,
+          tau = current_node$tau
+        ) # Adding the node to the new_tree
+        
+        i <- i + 1 # Adding to the next node
+        
+        new_tree[[paste0("node_", i)]] <- list(
+          node_number = i, observations_index = right_node_split,
+          depth_node = depth_node,
+          node_var = node_var,
+          node_var_split = node_var_split,
+          left = 0,
+          right = 1,
+          parent_node = current_node$node_number, # Retrieving the number of parent node
+          terminal = 1,
+          tau = current_node$tau)
+        
+      } # Finishing the adjustment/conditional for the \tau trees
+    }
+    
+    # Verifying if it is a good or bad tree
+    if(any(vapply(new_tree, function(x) {
+      (length(x$observations_index) < node_min_size)
+    }, logical(1)))) { # Verifying if any terminal node is lower than node_min_size
+      count_bad_trees <- count_bad_trees + 1
+    } else {
+      bad_trees <- FALSE # Return the new good tree
+    }
+    
+    # Verifying the limit of counting 2 bad trees
+    if(count_bad_trees == 2) {
+      return(tree) # Return the original tree
+    }
+  }
+    return(new_tree)
+}
+
+# ==================================#
+# Objects to test the prune_tree_verb function
+# ==================================#
+
+# Prune a tree verb
+prune_tree_verb <- function(tree, x) {
+  
+  # Returning if the tree is just a single node
+  if(length(tree) == 1) {
+    return(tree)
+  }
+  
+  # Selecting parent nodes
+  parent_nodes <- unique(vapply(tree, "[[", numeric(1), "parent_node"))
+  parent_nodes <- parent_nodes[!is.na(parent_nodes) & parent_nodes >= 0]
+  if(length(parent_nodes) == 1) {
+    return(tree)
+  }
+  
+  # Choose the pairs nodes
+  pairs_terminal_nodes <- t(sapply(parent_nodes, function(x) {
+    vapply(tree, "[[", numeric(1), "parent_node") == x
+    }))
+  
+  # Names of terminal nodes
+  names_pairs_terminal_nodes <- apply(pairs_terminal_nodes, 1, function(x) {
+    names(which(unlist(x)))
+  })
+  
+  # Getting BOOLEAN of the pairs of ONLY terminal nodes
+  terminal_both_nodes <- apply(names_pairs_terminal_nodes, 2, function(x) {
+    all(vapply(tree[x], "[[", numeric(1), "terminal") == 1)
+  })
+  
+  # Selecting the name of children terminal nodes.
+  keep_only_terminal_nodes <- names_pairs_terminal_nodes[, terminal_both_nodes]
+  
+  # Children pair (if to case of just one to be pruned)
+  if(is.matrix(keep_only_terminal_nodes)) {
+    child_to_be_pruned <- keep_only_terminal_nodes[, sample(1:ncol(keep_only_terminal_nodes), size = 1)]
+  } else {
+    child_to_be_pruned <- keep_only_terminal_nodes
+  }
+  
+  # Getting the parent node
+  parent_of_the_pruned_node <- tree[[child_to_be_pruned[1]]]$parent_node
+  
+  tree[[child_to_be_pruned[1]]] <- NULL # Pruning child node 1
+  
+  tree[[child_to_be_pruned[2]]] <- NULL # Pruning child node 2
+  
+  # Transforming the parent in a terminal node
+  tree[[paste0("node_", parent_of_the_pruned_node)]]$terminal <- 1
+    return(tree)
+}
+
+# ==================================#
+# Objects to test the change_tree_verb function
+# ==================================#
+
+# Function to get all children nodes from that which was changed.
+get_all_children <- function(new_tree, current_node) {
+  aux <- names(which(vapply(
+    new_tree, "[[", numeric(1), "parent_node")
+    == current_node$node_number)) # Selecting the children nodes.
+  
+  if(new_tree[[aux[1]]]$terminal == 0) {
+    aux <- c(aux, get_all_children(new_tree, current_node = new_tree[[aux[1]]]))
+  }
+  if(new_tree[[aux[2]]]$terminal == 0) {
+    aux <- c(aux, get_all_children(new_tree, current_node = new_tree[[aux[2]]]))
+  }
+    return(aux)
+}
+
+# Change a tree verb
+change_tree_verb <- function(tree, x, node_min_size) {
+  
+  # Controlling the "bad trees"
+  bad_trees <- TRUE
+  count_bad_trees <- 0
+  
+  while(bad_trees) {
+    
+    # Creating the dummy for the new tree
+    new_tree <- tree
+    
+    # Randomly select a internal node
+    nodes_to_change_names <- names(new_tree[vapply(new_tree, "[[", numeric(1), "terminal") == 0])
+    
+    # Sampling the node to change
+    node_to_change <- sample(nodes_to_change_names,size = 1)
+    
+    # setting the node to be changed as default
+    current_node <- new_tree[[node_to_change]]
+    
+    # Selecting the covariate
+    node_var <- sample(colnames(x), 1)
+    
+    # Analyzing the case where isn't a rotated cov.
+    if(is.numeric(x[, node_var])) {
+      node_var_split <- sample(sort(x[current_node$observations_index, node_var]), size = 1) # Selecting the splitting point on the variable
+      
+    } else {
+      node_var_split <- sample(
+        levels(x[current_node$observations_index, node_var]), # Selecting from the observations
+        1
+      )
+    }
+    
+    # Get childrens
+    children_from_change_node <- get_all_children(new_tree, current_node = current_node)
+    
+    new_tree[[children_from_change_node[1]]]$node_var <- node_var # Changing the node var
+    new_tree[[children_from_change_node[2]]]$node_var <- node_var # Changing the node var
+    
+    new_tree[[children_from_change_node[1]]]$node_var_split <- node_var_split # Changing the node split
+    new_tree[[children_from_change_node[2]]]$node_var_split <- node_var_split # Changing the node split
+    
+    # Updating all nodes
+    for(i in seq_along(children_from_change_node)) {
+      
+      # Iterating over each one of the tre noees
+      current_node_aux <- new_tree[[children_from_change_node[i]]]
+      
+        # To continous covariates
+        if(is.numeric(x[, current_node_aux$node_var])) {
+          
+          # Updating observations from the left node
+          if (current_node_aux$left == 1) {
+            new_tree[[children_from_change_node[i]]]$observations_index <- new_tree[[paste0("node_", current_node_aux$parent_node)]]$observations_index[which(x[new_tree[[paste0("node_", current_node_aux$parent_node)]]$observations_index, current_node_aux$node_var]  < current_node_aux$node_var_split)] # Updating the left node
+          } else {
+            new_tree[[children_from_change_node[i]]]$observations_index <- new_tree[[paste0("node_", current_node_aux$parent_node)]]$observations_index[which(x[new_tree[[paste0("node_", current_node_aux$parent_node)]]$observations_index, current_node_aux$node_var] >= current_node_aux$node_var_split)] # Updating the right node
+          }
+        
+          # To categorical covariates
+        } else {
+          # Updating observations from the left node
+          if(current_node_aux$left == 1) {
+            new_tree[[children_from_change_node[i]]]$observations_index <- new_tree[[paste0("node_", current_node_aux$parent_node)]]$observations_index[which(x[new_tree[[paste0("node_", current_node_aux$parent_node)]]$observations_index, current_node_aux$node_var] == current_node_aux$node_var_split)] # Updating the left node
+          } else {
+            new_tree[[children_from_change_node[i]]]$observations_index <- new_tree[[paste0("node_", current_node_aux$parent_node)]]$observations_index[which(x[new_tree[[paste0("node_", current_node_aux$parent_node)]]$observations_index, current_node_aux$node_var] != current_node_aux$node_var_split)]
+          }
+        }
+      
+    }
+    
+    if(any(vapply(new_tree, function(x) {
+      (length(x$observations_index) < node_min_size)
+    }, logical(1)))) { # Verifying if any terminal node is lower than node_min_size
+      count_bad_trees <- count_bad_trees + 1
+    } else {
+      bad_trees <- FALSE # Return the new good tree
+    }
+    
+    # Verfying the limit of counting 2 bad trees
+    if(count_bad_trees == 2) {
+      return(tree) # Return the original tree
+    }
+    
+  } # Stopping the while
+    return(new_tree)
+}
+
+# ==================================#
+# Objects to test the change_projction_tree_verb function
+# ==================================#
+
+# ==================================#
+# Objects to test the swap_tree_verb function
+# ==================================#
+
+# Swap a tree verb
+swap_tree_verb <- function(tree, x, node_min_size) {
+  
+  # Auxiliary variables to trim and make sure that I getting the true values
+  bad_trees <- TRUE
+  count_bad_trees <- 0
+  
+  # Condition to not choose terminal nodes with less than node_min_size
+  while(bad_trees) {
+    
+    # Updating the new tree
+    new_tree <- tree
+    
+    # Selecting internal nodes names
+    names_internal_nodes <- names(which(vapply(new_tree, "[[", numeric(1), "terminal") == 0))
+    
+    # If less than 3 internal nodes, return the tree
+    if(length(names_internal_nodes) <= 3) {
+      return(tree)
+    }
+    
+    # Randomly select a internal node
+    node_to_swap_child_internal_CANDIDATES <- intersect(names(new_tree)[! (names(new_tree) %in% c("node_0","node_1","node_2")) ],
+                                                        names_internal_nodes)
+    
+    # If there is no internal child node
+    if(length(node_to_swap_child_internal_CANDIDATES) == 0) {
+      return(tree)
+    }
+    
+    # Certifying that's a parent and child internal
+    node_to_swap_child_internal <- sample(node_to_swap_child_internal_CANDIDATES,size = 1)
+    
+    # Certifying that's a parent and child internal
+    # Saving as current node
+    current_node <- new_tree[[node_to_swap_child_internal]]
+    
+    # Selecting the node to swap
+    node_to_swap_parent <- names(which(vapply(
+      new_tree, "[[", numeric(1), "node_number")
+      == current_node$parent_node)) # Selecting the children from swap parent
+    
+    # Getting the both next children from the swapped parent node.
+    parent_swap_imediate_children <- get_all_children(new_tree, current_node = new_tree[[node_to_swap_parent]])[1:2]
+    
+    # Getting the both next children from the swapped children node.
+    child_swap_imediate_children <- get_all_children(new_tree, current_node = new_tree[[node_to_swap_child_internal]])[1:2]
+    
+    # Selecting the node_var and node_var_split rule for parent and child internal respectively
+    #
+    # For the case where a rot. lat/lon is swap
+    if(is.list(new_tree[[parent_swap_imediate_children[1]]]$node_var) ) {
+      node_and_split_1 <- list(
+        new_tree[[parent_swap_imediate_children[1]]]$node_var, new_tree[[parent_swap_imediate_children[1]]]$node_var_split,
+        new_tree[[parent_swap_imediate_children[1]]]$theta
+      )
+    } else {
+      node_and_split_1 <- c(new_tree[[parent_swap_imediate_children[1]]]$node_var, new_tree[[parent_swap_imediate_children[1]]]$node_var_split)
+    }
+    # For the case where a rot. lat/lon is swaped
+    if(is.list(new_tree[[child_swap_imediate_children[1]]]$node_var) ) {
+      node_and_split_2 <- list(
+        new_tree[[child_swap_imediate_children[1]]]$node_var, new_tree[[child_swap_imediate_children[1]]]$node_var_split,
+        new_tree[[child_swap_imediate_children[1]]]$theta
+      )
+    } else {
+      node_and_split_2 <- c(new_tree[[child_swap_imediate_children[1]]]$node_var, new_tree[[child_swap_imediate_children[1]]]$node_var_split)
+    }
+    
+    # Changing the first swapped internal child from parent (node one)
+    if(is.list(node_and_split_2[[1]])) { # For the case where a rot. lat/lon is swap
+      new_tree[[parent_swap_imediate_children[1]]]$node_var <- node_and_split_2[[1]]
+      new_tree[[parent_swap_imediate_children[1]]]$node_var_split <- as.numeric(node_and_split_2[[2]])
+      new_tree[[parent_swap_imediate_children[1]]]$theta <- as.numeric(node_and_split_2[[3]])
+      
+    } else {
+      new_tree[[parent_swap_imediate_children[1]]]$node_var <- node_and_split_2[1]
+      new_tree[[parent_swap_imediate_children[1]]]$node_var_split <- as.numeric(node_and_split_2[2])
+    }
+    
+    # Chamging the first swapped internal child from parent (node two)
+    if(is.list(node_and_split_2[[1]]) ) { # For the case where a rot. lat/lon is swap
+      new_tree[[parent_swap_imediate_children[2]]]$node_var <- node_and_split_2[[1]]
+      new_tree[[parent_swap_imediate_children[2]]]$node_var_split <- as.numeric(node_and_split_2[[2]])
+      new_tree[[parent_swap_imediate_children[2]]]$theta <- as.numeric(node_and_split_2[[3]])
+    } else {
+      new_tree[[parent_swap_imediate_children[2]]]$node_var <- node_and_split_2[1]
+      new_tree[[parent_swap_imediate_children[2]]]$node_var_split <- as.numeric(node_and_split_2[2])
+    }
+    
+    # Changing the first swapped internal parent from child (node one)
+    if(is.list(node_and_split_1[[1]]) ) { # For the case where a rot. lat/lon is swap
+      new_tree[[child_swap_imediate_children[1]]]$node_var <- node_and_split_1[[1]]
+      new_tree[[child_swap_imediate_children[1]]]$node_var_split <- as.numeric(node_and_split_1[[2]])
+      new_tree[[child_swap_imediate_children[1]]]$theta <- as.numeric(node_and_split_1[[3]])
+    } else {
+      new_tree[[child_swap_imediate_children[1]]]$node_var <- node_and_split_1[1]
+      new_tree[[child_swap_imediate_children[1]]]$node_var_split <- as.numeric(node_and_split_1[2])
+    }
+    
+    # Chamging the first swapped internal parent from child (node two)
+    if(is.list(node_and_split_1[[1]]) ) { # For the case where a rot. lat/lon is swap
+      new_tree[[child_swap_imediate_children[2]]]$node_var <- node_and_split_1[[1]]
+      new_tree[[child_swap_imediate_children[2]]]$node_var_split <- as.numeric(node_and_split_1[[2]])
+      new_tree[[child_swap_imediate_children[2]]]$theta <- as.numeric(node_and_split_1[[3]])
+    } else {
+      new_tree[[child_swap_imediate_children[2]]]$node_var <- node_and_split_1[1]
+      new_tree[[child_swap_imediate_children[2]]]$node_var_split <- as.numeric(node_and_split_1[2])
+    }
+    
+    # Updating the new_tree observations (Getting all children from that swapped)
+    list_nodes <- get_all_children(new_tree = new_tree, current_node = new_tree[[node_to_swap_parent]])
+    
+    # Updating all nodes
+    for(i in seq_along(list_nodes)) {
+      current_node_aux <- new_tree[[list_nodes[i]]]
+      
+        # To continous covariates
+        if(is.numeric(x[, current_node_aux$node_var])) {
+          
+          # Updating observations from the left node
+          if(current_node_aux$left == 1) {
+            new_tree[[list_nodes[i]]]$observations_index <- new_tree[[paste0("node_", current_node_aux$parent_node)]]$observations_index[which(x[new_tree[[paste0("node_", current_node_aux$parent_node)]]$observations_index, current_node_aux$node_var]  < current_node_aux$node_var_split)] # Updating the left node
+          } else {
+            new_tree[[list_nodes[i]]]$observations_index <- new_tree[[paste0("node_", current_node_aux$parent_node)]]$observations_index[which(x[new_tree[[paste0("node_", current_node_aux$parent_node)]]$observations_index, current_node_aux$node_var] >= current_node_aux$node_var_split)] # Updating the right node
+          }
+          
+          # To categorical covariates
+        } else {
+          # Updating observations from the left node
+          if (current_node_aux$left == 1) {
+            new_tree[[list_nodes[i]]]$observations_index <- new_tree[[paste0("node_", current_node_aux$parent_node)]]$observations_index[which(x[new_tree[[paste0("node_", current_node_aux$parent_node)]]$observations_index, current_node_aux$node_var] == current_node_aux$node_var_split)] # Updating the left node
+          } else {
+            new_tree[[list_nodes[i]]]$observations_index <- new_tree[[paste0("node_", current_node_aux$parent_node)]]$observations_index[which(x[new_tree[[paste0("node_", current_node_aux$parent_node)]]$observations_index, current_node_aux$node_var] != current_node_aux$node_var_split)]
+          }
+        }
+      
+    }
+    
+    # Verifying if it is a good or bad tree
+    if(any(vapply(new_tree, function(x) {
+      (length(x$observations_index) < node_min_size)
+    }, logical(1)))) { # Verifying if any terminal node is lower than node_min_size
+      count_bad_trees <- count_bad_trees + 1
+    } else {
+      bad_trees <- FALSE # Return the new good tree
+    }
+    
+    # Verfying the limit of counting 2 bad trees
+    if(count_bad_trees == 2) {
+      return(tree) # Return the original tree
+    }
+  }
+    return(new_tree)
+}
+
+# Sort an action to update the tree
+update_tree_verb <- function(tree, x, node_min_size, verb) {
+  
+  # Update the tree by a verb
+  updated_tree <- switch(verb,
+                         grow = grow_tree(tree,
+                                          x = x, node_min_size = node_min_size),
+                         prune = prune_tree_verb(tree, x = x), # Prune verb
+                         change = change_tree_verb(tree, x = x, node_min_size = node_min_size), # Change verb
+                         swap = swap_tree_verb(tree, x = x, node_min_size = node_min_size) # Swap verb
+  )
+    return(updated_tree)
+}
+
